@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS entregas_webhook (
     payload TEXT NOT NULL,
     status INTEGER,
     tentativas INTEGER NOT NULL DEFAULT 0,
-    proxima_em TEXT
+    proxima_em TEXT,
+    ultimo_status_http INTEGER
 );
 """
 
@@ -43,6 +44,11 @@ CREATE TABLE IF NOT EXISTS entregas_webhook (
 async def inicializar_banco(caminho: str) -> None:
     async with aiosqlite.connect(caminho) as db:
         await db.executescript(SCHEMA)
+        # migration: add ultimo_status_http if missing
+        async with db.execute("PRAGMA table_info(entregas_webhook)") as cur:
+            cols = [r[1] for r in await cur.fetchall()]
+        if "ultimo_status_http" not in cols:
+            await db.execute("ALTER TABLE entregas_webhook ADD COLUMN ultimo_status_http INTEGER")
         await db.commit()
 
 

@@ -1,6 +1,7 @@
 """Webhooks e caos controlavel."""
 
 import json
+import random
 from datetime import timedelta
 
 import aiosqlite
@@ -72,7 +73,12 @@ async def consultar_webhook(chave: str) -> dict[str, object]:
         await db.close()
     if row is None:
         raise problema(404, "Nao encontrado", f"Webhook {chave} nao encontrado", "https://pix-bancada.local/problems/not-found")
-    return {"chave": row["chave"], "webhookUrl": row["url"]}
+    return {
+        "chave": row["chave"],
+        "webhookUrl": row["url"],
+        "cnpj": "00000000000191",
+        "criacao": relogio.agora().isoformat(),
+    }
 
 
 @router.delete("/webhook/{chave}")
@@ -86,7 +92,7 @@ async def remover_webhook(chave: str) -> dict[str, object]:
     return {"chave": chave, "removido": True}
 
 
-async def enfileirar_entrega(chave: str, e2eid: str, valor: str) -> None:
+async def enfileirar_entrega(chave: str, e2eid: str, valor: str, txid: str | None = None) -> None:
     db = await aiosqlite.connect(caminho_banco)
     try:
         async with db.execute("SELECT url FROM webhooks WHERE chave=?", (chave,)) as cur:
@@ -99,7 +105,7 @@ async def enfileirar_entrega(chave: str, e2eid: str, valor: str) -> None:
             "pix": [
                 {
                     "endToEndId": e2eid,
-                    "txid": None,
+                    "txid": txid,
                     "valor": valor,
                     "horario": relogio.agora().isoformat(),
                 }
@@ -130,7 +136,9 @@ async def processar_entregas() -> int:
             "SELECT * FROM entregas_webhook WHERE proxima_em <= ? AND status IS NULL",
             (relogio.agora().isoformat(),),
         ) as cur:
-            rows = await cur.fetchall()
+            rows = list(await cur.fetchall())
+        if bool(cenario.get("fora_de_ordem", False)):
+            random.Random(int(str(cenario.get("semente", 42)))).shuffle(rows)
         for row in rows:
             # lookup url
             async with db.execute(
@@ -159,19 +167,22 @@ async def processar_entregas() -> int:
             sucesso = status_code is not None and 200 <= status_code < 300
             if sucesso:
                 await db.execute(
-                    "UPDATE entregas_webhook SET status=?, tentativas=? WHERE id=?",
-                    (status_code, tentativas, row["id"]),
+                    "UPDATE entregas_webhook "
+                    "SET status=?, tentativas=?, ultimo_status_http=? WHERE id=?",
+                    (status_code, tentativas, status_code, row["id"]),
                 )
                 processadas += 1
             else:
-                # reagendar com backoff
+                # reagendar com backoff; manter pendente (status NULL) para retry
                 proxima = relogio.agora() + timedelta(seconds=5)
+                http_code = status_code if status_code is not None else 0
                 await db.execute(
-                    "UPDATE entregas_webhook SET status=?, tentativas=?, proxima_em=? WHERE id=?",
+                    "UPDATE entregas_webhook "
+                    "SET status=NULL, tentativas=?, proxima_em=?, ultimo_status_http=? WHERE id=?",
                     (
-                        status_code if status_code is not None else 0,
                         tentativas,
                         proxima.isoformat(),
+                        http_code,
                         row["id"],
                     ),
                 )

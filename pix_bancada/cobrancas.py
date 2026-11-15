@@ -36,24 +36,33 @@ async def _conn() -> aiosqlite.Connection:
 
 
 def _row_para_cob(row: aiosqlite.Row) -> dict[str, object]:
+    criacao = row["criado_em"]
+    expiracao_seg = 3600
+    if row["expiracao_em"] and criacao:
+        try:
+            delta = datetime.fromisoformat(row["expiracao_em"]) - datetime.fromisoformat(criacao)
+            expiracao_seg = int(delta.total_seconds())
+        except ValueError:
+            expiracao_seg = 3600
     return {
-        "calendario": {"criacao": row["criado_em"], "expiracao": row["expiracao_em"]},
+        "calendario": {"criacao": criacao, "expiracao": expiracao_seg},
         "txid": row["txid"],
         "revisao": 0,
         "status": row["status"],
         "valor": {"original": row["valor"]} if row["valor"] else {},
         "chave": row["chave"],
-        "solicitacaoPagador": None,
         "loc": {
-            "id": row["txid"][:8],
-            "location": f"pix-bancada.local/loc/{row['txid'][:8]}",
+            "id": int(row["txid"][:8]) if row["txid"][:8].isdigit() else 0,
+            "location": f"http://pix-bancada.local/loc/{row['txid'][:8]}",
             "tipoCob": "cob",
+            "criacao": row["criado_em"],
+            "txid": row["txid"],
         },
         "pixCopiaECola": row["brcode"],
     }
 
 
-@router.put("/cob/{txid}")
+@router.put("/cob/{txid}", status_code=201)
 async def criar_ou_alterar_cob(txid: str, body: CobrancaCriar) -> dict[str, object]:
     agora = relogio.agora().isoformat()
     expira = (relogio.agora() + timedelta(seconds=body.expiracao)).isoformat()
@@ -77,7 +86,7 @@ async def criar_ou_alterar_cob(txid: str, body: CobrancaCriar) -> dict[str, obje
     return _row_para_cob(row)
 
 
-@router.post("/cob")
+@router.post("/cob", status_code=201)
 async def criar_cob(body: CobrancaCriar) -> dict[str, object]:
     txid = gerar_txid()
     return await criar_ou_alterar_cob(txid, body)
@@ -150,6 +159,12 @@ async def listar_cob(
         if status:
             q += " AND status=?"
             params.append(status)
+        if inicio:
+            q += " AND criado_em >= ?"
+            params.append(inicio)
+        if fim:
+            q += " AND criado_em <= ?"
+            params.append(fim)
         async with db.execute(q, params) as cur:
             rows = await cur.fetchall()
     finally:
@@ -170,8 +185,9 @@ async def consultar_loc(loc_id: str) -> dict[str, object]:
         raise problema(404, "Nao encontrado", f"Location {loc_id} nao encontrada", "https://pix-bancada.local/problems/not-found")
     assert row is not None
     return {
-        "id": loc_id,
-        "location": f"pix-bancada.local/loc/{loc_id}",
+        "id": int(loc_id) if str(loc_id).isdigit() else 0,
+        "location": f"http://pix-bancada.local/loc/{loc_id}",
         "tipoCob": "cob",
         "txid": row["txid"],
+        "criacao": row["criado_em"],
     }

@@ -81,7 +81,7 @@ async def pagar(body: PagarRequest) -> dict[str, object]:
     finally:
         await db.close()
     try:
-        await enfileirar_entrega(chave_cob, e2eid, valor_pago or "0.00")
+        await enfileirar_entrega(chave_cob, e2eid, valor_pago or "0.00", txid=txid)
     except Exception:
         pass
     return {"endToEndId": e2eid, "txid": txid, "valor": valor_pago, "horario": agora}
