@@ -18,5 +18,6 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: mypy pix_bancada
+      - run: python scripts/fetch_spec.py
       - run: pytest --cov=pix_bancada --cov-report=term-missing
       - run: docker build -t pix-bancada:ci .
