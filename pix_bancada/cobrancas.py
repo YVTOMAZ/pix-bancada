@@ -23,7 +23,7 @@ class CobExpiracao(BaseModel):
 
 
 class CobValor(BaseModel):
-    original: str | None = Field(default=None, pattern=r"^\d{1,10}\.\d{2}$")
+    original: str = Field(pattern=r"^\d{1,10}\.\d{2}$")
     modalidadeAlteracao: int | None = Field(default=None, ge=0, le=1)
 
 
@@ -41,8 +41,8 @@ class Devedor(BaseModel):
 
 class CobSolicitada(BaseModel):
     chave: str
-    valor: CobValor | None = None
-    calendario: CobExpiracao | None = None
+    valor: CobValor
+    calendario: CobExpiracao
     devedor: Devedor | None = None
     loc: Any | None = None
     solicitacaoPagador: str | None = None
@@ -138,7 +138,7 @@ def _row_para_cob(row: aiosqlite.Row) -> dict[str, object]:
         "txid": row["txid"],
         "revisao": 0,
         "status": row["status"],
-        "valor": {"original": row["valor"]} if row["valor"] else {},
+        "valor": {"original": row["valor"]},
         "chave": row["chave"],
         "loc": {
             "id": int(row["txid"][:8]) if row["txid"][:8].isdigit() else 0,
@@ -156,8 +156,8 @@ async def criar_ou_alterar_cob(
     txid: str, body: CobSolicitada, response: Response
 ) -> dict[str, object]:
     agora = relogio.agora().isoformat()
-    valor_str = body.valor.original if body.valor is not None else None
-    expiracao = body.calendario.expiracao if body.calendario is not None else 86400
+    valor_str = body.valor.original
+    expiracao = body.calendario.expiracao
     expira = (relogio.agora() + timedelta(seconds=expiracao)).isoformat()
     brcode = gerar_brcode(body.chave, valor=valor_str, txid=txid)
     db = await _conn()
@@ -235,6 +235,10 @@ async def alterar_cob(txid: str, body: CobRevisada, response: Response) -> dict[
         if body.valor is not None:
             await db.execute(
                 "UPDATE cobrancas SET valor=? WHERE txid=?", (body.valor.original, txid)
+            )
+            brcode = gerar_brcode(row["chave"], valor=body.valor.original, txid=txid)
+            await db.execute(
+                "UPDATE cobrancas SET brcode=? WHERE txid=?", (brcode, txid)
             )
         if body.calendario is not None and body.calendario.expiracao is not None:
             criacao = row["criado_em"]
