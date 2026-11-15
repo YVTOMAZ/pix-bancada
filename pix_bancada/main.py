@@ -8,6 +8,7 @@ from pix_bancada.config import obter_configuracao
 from pix_bancada.estado import inicializar
 from pix_bancada.oauth import router as oauth_router
 from pix_bancada.pix import router as pix_router
+from pix_bancada.webhooks import router as webhooks_router
 
 configuracao = obter_configuracao()
 
@@ -29,3 +30,4 @@ async def saude() -> dict[str, str]:
 app.include_router(oauth_router)
 app.include_router(cob_router)
 app.include_router(pix_router)
+app.include_router(webhooks_router)
