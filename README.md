@@ -33,7 +33,7 @@ curl -X PUT http://127.0.0.1:8080/cob/tx1 \
 | Rota | Descricao |
 |---|---|
 | POST /oauth/token | Token ficticio |
-| PUT/POST/GET/PATCH /cob/{txid}, GET /cob | Cobranca imediata |
+| PUT/POST/GET/PATCH /cob/{txid}, GET /cob | Cobranca imediata (PATCH: so `REMOVIDA_PELO_USUARIO_RECEBEDOR`; `revisao` incremental) |
 | GET /loc/{id} | Location |
 | POST /_bancada/banco/pagar | Pagar cobranca (banco ficticio) |
 | GET /pix, GET /pix/{e2eid} | Pix recebidos |
