@@ -10,6 +10,7 @@ from pix_bancada.brcode import parse_brcode, validar_crc
 from pix_bancada.erros import problema
 from pix_bancada.estado import caminho_banco, relogio
 from pix_bancada.ids import gerar_end_to_end_id
+from pix_bancada.webhooks import enfileirar_entrega
 
 router = APIRouter()
 
@@ -74,10 +75,15 @@ async def pagar(body: PagarRequest) -> dict[str, object]:
             "INSERT INTO pix (end_to_end_id, txid, valor, pago_em) VALUES (?,?,?,?)",
             (e2eid, txid, valor_pago or "0.00", agora),
         )
+        chave_cob = row["chave"]
         await db.execute("UPDATE cobrancas SET status='CONCLUIDA' WHERE txid=?", (txid,))
         await db.commit()
     finally:
         await db.close()
+    try:
+        await enfileirar_entrega(chave_cob, e2eid, valor_pago or "0.00")
+    except Exception:
+        pass
     return {"endToEndId": e2eid, "txid": txid, "valor": valor_pago, "horario": agora}
 
 
