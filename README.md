@@ -2,7 +2,7 @@
 
 Emulador local da API Pix do BCB: banco ficticio para pagar cobrancas de teste, webhooks realistas, caos controlavel e relogio virtual.
 
-> Status: v0.1.0 publicada.
+> Status: v0.1.1 publicada.
 
 ## Aviso importante
 
@@ -28,7 +28,7 @@ curl -X PUT http://127.0.0.1:8080/cob/tx1 \
   -d '{"chave":"12345678901","valor":"10.50"}'
 ```
 
-## Rotas suportadas (v0.1.0)
+## Rotas suportadas (v0.1.x)
 
 | Rota | Descricao |
 |---|---|
