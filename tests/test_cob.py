@@ -129,9 +129,12 @@ def test_cob_patch_valor_objeto() -> None:
                 "calendario": {"expiracao": 3600},
             },
         )
+        antes = c.get("/cob/txpatch").json()["pixCopiaECola"]
         r = c.patch("/cob/txpatch", json={"valor": {"original": "20.00"}})
         assert r.status_code == 200
         assert r.json()["valor"]["original"] == "20.00"
+        assert r.json()["pixCopiaECola"] != antes
+        assert "540520.00" in r.json()["pixCopiaECola"]
 
 
 def test_cob_valor_invalido_400_ou_422() -> None:
@@ -277,3 +280,38 @@ def test_migracao_adiciona_revisao_idempotente(tmp_path: Path) -> None:
     con = sqlite3.connect(db)
     assert con.execute("SELECT revisao FROM cobrancas WHERE txid='a'").fetchone() == (0,)
     con.close()
+
+
+def _put_devedor(c: TestClient, txid: str, devedor: dict[str, str]) -> int:
+    return c.put(
+        f"/cob/{txid}",
+        json={
+            "chave": "12345678901",
+            "valor": {"original": "10.50"},
+            "calendario": {"expiracao": 60},
+            "devedor": devedor,
+        },
+    ).status_code
+
+
+def test_devedor_pattern_e_maxlength_do_contrato() -> None:
+    with TestClient(app) as c:
+        assert _put_devedor(c, "txd1", {"cpf": "1234567890", "nome": "Fulano"}) == 422
+        assert _put_devedor(c, "txd2", {"cpf": "1234567890a", "nome": "Fulano"}) == 422
+        assert _put_devedor(c, "txd3", {"cnpj": "1234567890123", "nome": "Empresa"}) == 422
+        assert _put_devedor(c, "txd4", {"cnpj": "1234567890123a", "nome": "Empresa"}) == 422
+        assert _put_devedor(c, "txd5", {"cpf": "12345678901", "nome": "x" * 201}) == 422
+        assert _put_devedor(c, "txd6", {"cpf": "12345678901", "nome": "x" * 200}) == 201
+        assert _put_devedor(c, "txd7", {"cnpj": "12ABC34501DE35", "nome": "Empresa"}) == 201
+
+
+def test_get_cob_legado_com_valor_nulo_nao_inventa_valor() -> None:
+    with TestClient(app) as c:
+        _criar(c, "txnulo")
+        con = sqlite3.connect("pix_bancada.db")
+        con.execute("UPDATE cobrancas SET valor=NULL WHERE txid='txnulo'")
+        con.commit()
+        con.close()
+        r = c.get("/cob/txnulo")
+        assert r.status_code == 200
+        assert "valor" not in r.json()

@@ -28,9 +28,9 @@ class CobValor(BaseModel):
 
 
 class Devedor(BaseModel):
-    cpf: str | None = None
-    cnpj: str | None = None
-    nome: str
+    cpf: str | None = Field(default=None, pattern=r"^\d{11}$")
+    cnpj: str | None = Field(default=None, pattern=r"^[0-9A-Z]{14}$")
+    nome: str = Field(max_length=200)
 
     @model_validator(mode="after")
     def _um_identificador(self) -> "Devedor":
@@ -132,12 +132,11 @@ def _row_para_cob(row: aiosqlite.Row) -> dict[str, object]:
             expiracao_seg = int(delta.total_seconds())
         except ValueError:
             expiracao_seg = 3600
-    return {
+    cob: dict[str, object] = {
         "calendario": {"criacao": criacao, "expiracao": expiracao_seg},
         "txid": row["txid"],
         "revisao": row["revisao"],
         "status": row["status"],
-        "valor": {"original": row["valor"]},
         "chave": row["chave"],
         "loc": {
             "id": int(row["txid"][:8]) if row["txid"][:8].isdigit() else 0,
@@ -148,6 +147,10 @@ def _row_para_cob(row: aiosqlite.Row) -> dict[str, object]:
         },
         "pixCopiaECola": row["brcode"],
     }
+    # linhas legadas podem ter valor NULL: omitir em vez de fabricar {"original": null}
+    if row["valor"] is not None:
+        cob["valor"] = {"original": row["valor"]}
+    return cob
 
 
 @router.put("/cob/{txid}", status_code=201)

@@ -51,6 +51,7 @@ cobv/lotecobv, Pix Automatico (rec, solicrec, cobr, retentativa), mTLS, locrec, 
 
 - Nao e certificado, nao e afiliado ao BCB nem a PSP.
 - Nao substitui testes em producao/sandbox real.
+- Na v0.1.x, `devedor`, `solicitacaoPagador`, `infoAdicionais`, `loc` e `tributo` sao validados/aceitos em `/cob`, mas ignorados: nao sao persistidos nem devolvidos (o `loc` da resposta e sintetico).
 - Algumas regras variam por PSP; documentado como comportamento configuravel.
 
 ## Licenca
