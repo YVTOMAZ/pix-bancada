@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from pix_bancada import __version__
 from pix_bancada.cobrancas import router as cob_router
 from pix_bancada.config import obter_configuracao
 from pix_bancada.estado import inicializar
@@ -21,12 +22,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="pix-bancada", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="pix-bancada", version=__version__, lifespan=lifespan)
 
 
 @app.get("/saude")
 async def saude() -> dict[str, str]:
-    return {"status": "ok", "versao": "0.1.0"}
+    return {"status": "ok", "versao": __version__}
 
 
 app.include_router(oauth_router)
