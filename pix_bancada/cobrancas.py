@@ -1,29 +1,118 @@
 """Rotas de cobranca imediata (cob) e location (loc)."""
 
+import logging
 from datetime import datetime, timedelta
+from typing import Any
 
 import aiosqlite
-from fastapi import APIRouter, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Query, Response
+from pydantic import BaseModel, Field, model_validator
 
 from pix_bancada.brcode import gerar_brcode
 from pix_bancada.erros import problema
 from pix_bancada.estado import caminho_banco, relogio
 from pix_bancada.ids import gerar_txid
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
-class CobrancaCriar(BaseModel):
+class CobExpiracao(BaseModel):
+    expiracao: int = Field(default=86400, ge=1)
+
+
+class CobValor(BaseModel):
+    original: str | None = Field(default=None, pattern=r"^\d{1,10}\.\d{2}$")
+    modalidadeAlteracao: int | None = Field(default=None, ge=0, le=1)
+
+
+class Devedor(BaseModel):
+    cpf: str | None = None
+    cnpj: str | None = None
+    nome: str
+
+    @model_validator(mode="after")
+    def _um_identificador(self) -> "Devedor":
+        if (self.cpf is None) == (self.cnpj is None):
+            raise ValueError("informe cpf ou cnpj, nunca os dois")
+        return self
+
+
+class CobSolicitada(BaseModel):
     chave: str
-    valor: str | None = None
-    expiracao: int = Field(default=3600, ge=1)
+    valor: CobValor | None = None
+    calendario: CobExpiracao | None = None
+    devedor: Devedor | None = None
+    loc: Any | None = None
     solicitacaoPagador: str | None = None
+    infoAdicionais: list[Any] | None = None
+    tributo: Any | None = None
+    legado: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _converter_legado(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        novo = dict(data)
+        convertido = False
+        valor = novo.get("valor")
+        if isinstance(valor, str):
+            novo["valor"] = {"original": valor}
+            convertido = True
+        if "expiracao" in novo and "calendario" not in novo:
+            try:
+                novo["calendario"] = {"expiracao": int(novo.pop("expiracao"))}
+            except (TypeError, ValueError):
+                novo["calendario"] = {"expiracao": novo.pop("expiracao")}
+            convertido = True
+        else:
+            novo.pop("expiracao", None)
+        if convertido:
+            if "calendario" not in novo:
+                novo["calendario"] = {"expiracao": 86400}
+            novo["legado"] = True
+            logger.warning("formato plano legado recebido em cob; sera removido na v0.2.0")
+        return novo
 
 
-class CobrancaPatch(BaseModel):
+class CobRevisada(BaseModel):
     status: str | None = None
-    valor: str | None = None
+    valor: CobValor | None = None
+    calendario: CobExpiracao | None = None
+    devedor: Devedor | None = None
+    loc: Any | None = None
+    solicitacaoPagador: str | None = None
+    infoAdicionais: list[Any] | None = None
+    tributo: Any | None = None
+    legado: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _converter_legado(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        novo = dict(data)
+        convertido = False
+        valor = novo.get("valor")
+        if isinstance(valor, str):
+            novo["valor"] = {"original": valor}
+            convertido = True
+        if "expiracao" in novo and "calendario" not in novo:
+            try:
+                novo["calendario"] = {"expiracao": int(novo.pop("expiracao"))}
+            except (TypeError, ValueError):
+                novo["calendario"] = {"expiracao": novo.pop("expiracao")}
+            convertido = True
+        else:
+            novo.pop("expiracao", None)
+        if convertido:
+            if "calendario" not in novo:
+                novo["calendario"] = {"expiracao": 86400}
+            novo["legado"] = True
+            logger.warning("formato plano legado recebido em cob; sera removido na v0.2.0")
+        return novo
 
 
 ESTADOS_VALIDOS = {"ATIVA", "CONCLUIDA", "REMOVIDA_PELO_USUARIO_RECEBEDOR", "REMOVIDA_PELO_PSP"}
@@ -63,10 +152,14 @@ def _row_para_cob(row: aiosqlite.Row) -> dict[str, object]:
 
 
 @router.put("/cob/{txid}", status_code=201)
-async def criar_ou_alterar_cob(txid: str, body: CobrancaCriar) -> dict[str, object]:
+async def criar_ou_alterar_cob(
+    txid: str, body: CobSolicitada, response: Response
+) -> dict[str, object]:
     agora = relogio.agora().isoformat()
-    expira = (relogio.agora() + timedelta(seconds=body.expiracao)).isoformat()
-    brcode = gerar_brcode(body.chave, valor=body.valor, txid=txid)
+    valor_str = body.valor.original if body.valor is not None else None
+    expiracao = body.calendario.expiracao if body.calendario is not None else 86400
+    expira = (relogio.agora() + timedelta(seconds=expiracao)).isoformat()
+    brcode = gerar_brcode(body.chave, valor=valor_str, txid=txid)
     db = await _conn()
     try:
         await db.execute(
@@ -75,7 +168,7 @@ async def criar_ou_alterar_cob(txid: str, body: CobrancaCriar) -> dict[str, obje
                ON CONFLICT(txid) DO UPDATE SET
                  chave=excluded.chave, valor=excluded.valor, status='ATIVA',
                  expiracao_em=excluded.expiracao_em, brcode=excluded.brcode""",
-            (txid, body.chave, body.valor, "ATIVA", expira, agora, brcode),
+            (txid, body.chave, valor_str, "ATIVA", expira, agora, brcode),
         )
         await db.commit()
         async with db.execute("SELECT * FROM cobrancas WHERE txid=?", (txid,)) as cur:
@@ -83,13 +176,17 @@ async def criar_ou_alterar_cob(txid: str, body: CobrancaCriar) -> dict[str, obje
         assert row is not None
     finally:
         await db.close()
+    if body.legado:
+        response.headers["Deprecation"] = "true"
     return _row_para_cob(row)
 
 
 @router.post("/cob", status_code=201)
-async def criar_cob(body: CobrancaCriar) -> dict[str, object]:
+async def criar_cob(body: CobSolicitada, response: Response) -> dict[str, object]:
     txid = gerar_txid()
-    return await criar_ou_alterar_cob(txid, body)
+    # delegar preservando header: chamar e setar header na response local
+    r = await criar_ou_alterar_cob(txid, body, response)
+    return r
 
 
 @router.get("/cob/{txid}")
@@ -123,7 +220,7 @@ async def consultar_cob(txid: str) -> dict[str, object]:
 
 
 @router.patch("/cob/{txid}")
-async def alterar_cob(txid: str, body: CobrancaPatch) -> dict[str, object]:
+async def alterar_cob(txid: str, body: CobRevisada, response: Response) -> dict[str, object]:
     db = await _conn()
     try:
         async with db.execute("SELECT * FROM cobrancas WHERE txid=?", (txid,)) as cur:
@@ -136,13 +233,27 @@ async def alterar_cob(txid: str, body: CobrancaPatch) -> dict[str, object]:
                 raise problema(400, "Estado invalido", f"Estado {body.status} invalido", "https://pix-bancada.local/problems/invalid-state")
             await db.execute("UPDATE cobrancas SET status=? WHERE txid=?", (body.status, txid))
         if body.valor is not None:
-            await db.execute("UPDATE cobrancas SET valor=? WHERE txid=?", (body.valor, txid))
+            await db.execute(
+                "UPDATE cobrancas SET valor=? WHERE txid=?", (body.valor.original, txid)
+            )
+        if body.calendario is not None and body.calendario.expiracao is not None:
+            criacao = row["criado_em"]
+            try:
+                base = datetime.fromisoformat(criacao)
+                novo_exp = (base + timedelta(seconds=body.calendario.expiracao)).isoformat()
+                await db.execute(
+                    "UPDATE cobrancas SET expiracao_em=? WHERE txid=?", (novo_exp, txid)
+                )
+            except ValueError:
+                pass
         await db.commit()
         async with db.execute("SELECT * FROM cobrancas WHERE txid=?", (txid,)) as cur:
             row = await cur.fetchone()
         assert row is not None
     finally:
         await db.close()
+    if body.legado:
+        response.headers["Deprecation"] = "true"
     return _row_para_cob(row)
 
 

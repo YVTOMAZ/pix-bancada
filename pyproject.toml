@@ -1,6 +1,6 @@
 [project]
 name = "pix-bancada"
-version = "0.1.1"
+version = "0.1.2"
 description = "Emulador local da API Pix do BCB (desenvolvimento e testes)"
 requires-python = ">=3.11"
 dependencies = [
