@@ -7,7 +7,14 @@ from pix_bancada.main import app
 def test_fluxo_pagamento() -> None:
     bc = gerar_brcode("12345678901", valor="10.50", txid="txp")
     with TestClient(app) as c:
-        c.put("/cob/txp", json={"chave": "12345678901", "valor": "10.50"})
+        c.put(
+            "/cob/txp",
+            json={
+                "chave": "12345678901",
+                "valor": {"original": "10.50"},
+                "calendario": {"expiracao": 3600},
+            },
+        )
         r = c.post("/_bancada/banco/pagar", json={"pixCopiaECola": bc})
         assert r.status_code == 200
         e2e = r.json()["endToEndId"]

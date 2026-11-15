@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-15
+
+### Corrigido
+- `cob` (PUT/POST/PATCH) aceita o payload oficial do BCB (`calendario.expiracao`, `valor.original`, `valor.modalidadeAlteracao`, `devedor`, `solicitacaoPagador`, `infoAdicionais`).
+- `calendario.expiracao` passa a ser respeitado na criacao.
+- Teste de contrato valida requisicao e resposta de PUT/POST/PATCH de `cob`.
+
+### Obsoleto
+- Formato plano legado (`{"valor":"10.50","expiracao":N}`) aceito com `Deprecation: true`; removido na v0.2.0.
+
 ## [0.1.1] - 2026-11-15
 
 ### Corrigido

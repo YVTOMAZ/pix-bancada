@@ -34,8 +34,8 @@ def test_hash_divergente_falha() -> None:
     src = spec_path.read_text()
     # carregar modulo com hash alterado
     src_mod = src.replace(
-        "PINNED_SHA256 = \"cf191845044a5edd38c00b0e099924e8daceacfe53502abaa6a5b238bed41eb4\"",
-        "PINNED_SHA256 = \"0000000000000000000000000000000000000000000000000000000000000000\"",
+        'PINNED_SHA256 = "cf191845044a5edd38c00b0e099924e8daceacfe53502abaa6a5b238bed41eb4"',
+        'PINNED_SHA256 = "0000000000000000000000000000000000000000000000000000000000000000"',
     )
     ns: dict[str, object] = {}
     exec(compile(src_mod, "fetch_spec_mod", "exec"), ns)
@@ -44,7 +44,6 @@ def test_hash_divergente_falha() -> None:
     assert callable(main_fn)
     rc = main_fn()
     assert rc == 1
-
 
 
 def _spec() -> OpenAPI:
@@ -76,8 +75,13 @@ def _req(
 
 def test_contract_cob_put_get() -> None:
     spec = _spec()
-    body = {"chave": "12345678901", "valor": "10.50", "calendario": {"expiracao": 3600}}
+    body = {
+        "chave": "12345678901",
+        "valor": {"original": "10.50"},
+        "calendario": {"expiracao": 3600},
+    }
     req = _req("put", f"/api/cob/{TXID}", "/api/cob/{txid}", {"txid": TXID}, body)
+    assert list(spec.iter_request_errors(req)) == []
     with TestClient(app) as c:
         r = c.put(f"/cob/{TXID}", json=body)
         assert r.status_code == 201
@@ -95,7 +99,14 @@ def test_contract_cob_put_get() -> None:
 def test_contract_pix_get() -> None:
     spec = _spec()
     with TestClient(app) as c:
-        c.put(f"/cob/{TXID}", json={"chave": "12345678901", "valor": "10.50"})
+        c.put(
+            f"/cob/{TXID}",
+            json={
+                "chave": "12345678901",
+                "valor": {"original": "10.50"},
+                "calendario": {"expiracao": 3600},
+            },
+        )
         bc = gerar_brcode("12345678901", valor="10.50", txid=TXID)
         pay = c.post("/_bancada/banco/pagar", json={"pixCopiaECola": bc})
         assert pay.status_code == 200
@@ -132,9 +143,53 @@ def test_contract_loc_get() -> None:
     spec = _spec()
     prefix = TXID[:8]
     with TestClient(app) as c:
-        c.put(f"/cob/{TXID}", json={"chave": "12345678901", "valor": "10.50"})
+        c.put(
+            f"/cob/{TXID}",
+            json={
+                "chave": "12345678901",
+                "valor": {"original": "10.50"},
+                "calendario": {"expiracao": 3600},
+            },
+        )
         req = _req("get", f"/api/loc/{prefix}", "/api/loc/{id}", {"id": prefix})
         r = c.get(f"/loc/{prefix}")
         assert r.status_code == 200
         resp = MockResponse(r.content, status_code=r.status_code, headers=dict(r.headers))
         assert list(spec.iter_response_errors(req, resp)) == []
+
+
+def test_contract_cob_post() -> None:
+    spec = _spec()
+    body = {
+        "chave": "12345678901",
+        "valor": {"original": "10.50"},
+        "calendario": {"expiracao": 3600},
+    }
+    req = _req("post", "/api/cob", "/api/cob", {}, body)
+    assert list(spec.iter_request_errors(req)) == []
+    with TestClient(app) as c:
+        r = c.post("/cob", json=body)
+        assert r.status_code == 201
+    resp = MockResponse(r.content, status_code=r.status_code, headers=dict(r.headers))
+    assert list(spec.iter_response_errors(req, resp)) == []
+
+
+def test_contract_cob_patch() -> None:
+    spec = _spec()
+    with TestClient(app) as c:
+        c.put(
+            f"/cob/{TXID}",
+            json={
+                "chave": "12345678901",
+                "valor": {"original": "10.50"},
+                "calendario": {"expiracao": 3600},
+            },
+        )
+    body = {"valor": {"original": "20.00"}}
+    req = _req("patch", f"/api/cob/{TXID}", "/api/cob/{txid}", {"txid": TXID}, body)
+    assert list(spec.iter_request_errors(req)) == []
+    with TestClient(app) as c:
+        r = c.patch(f"/cob/{TXID}", json=body)
+        assert r.status_code == 200
+    resp = MockResponse(r.content, status_code=r.status_code, headers=dict(r.headers))
+    assert list(spec.iter_response_errors(req, resp)) == []

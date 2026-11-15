@@ -23,6 +23,7 @@ def test_cenario() -> None:
         assert r.json()["perder"] is True
         assert c.get("/_bancada/cenarios").json()["semente"] == 7
 
+
 def _receiver() -> tuple[
     ThreadingHTTPServer,
     threading.Thread,
@@ -65,7 +66,14 @@ def test_webhook_retry() -> None:
             url = f"http://127.0.0.1:{port}/hook"
             c.put("/webhook/minhachave", json={"webhookUrl": url})
             bc = gerar_brcode("minhachave", valor="10.50", txid="txretry")
-            c.put("/cob/txretry", json={"chave": "minhachave", "valor": "10.50"})
+            c.put(
+                "/cob/txretry",
+                json={
+                    "chave": "minhachave",
+                    "valor": {"original": "10.50"},
+                    "calendario": {"expiracao": 3600},
+                },
+            )
             c.post("/_bancada/cenarios", json={"erro_5xx": True})
             rpay = c.post("/_bancada/banco/pagar", json={"pixCopiaECola": bc})
             assert rpay.status_code == 200
@@ -88,7 +96,14 @@ def test_webhook_payload_txid() -> None:
             url = f"http://127.0.0.1:{port}/hook"
             c.put("/webhook/chave", json={"webhookUrl": url})
             bc = gerar_brcode("chave", valor="10.50", txid="txpayload")
-            c.put("/cob/txpayload", json={"chave": "chave", "valor": "10.50"})
+            c.put(
+                "/cob/txpayload",
+                json={
+                    "chave": "chave",
+                    "valor": {"original": "10.50"},
+                    "calendario": {"expiracao": 3600},
+                },
+            )
             c.post("/_bancada/banco/pagar", json={"pixCopiaECola": bc})
             c.post("/_bancada/relogio/avancar", json={"segundos": 0})
         with lock:
@@ -106,7 +121,14 @@ def test_webhook_duplicar() -> None:
             url = f"http://127.0.0.1:{port}/hook"
             c.put("/webhook/chave", json={"webhookUrl": url})
             bc = gerar_brcode("chave", valor="10.50", txid="txdup")
-            c.put("/cob/txdup", json={"chave": "chave", "valor": "10.50"})
+            c.put(
+                "/cob/txdup",
+                json={
+                    "chave": "chave",
+                    "valor": {"original": "10.50"},
+                    "calendario": {"expiracao": 3600},
+                },
+            )
             c.post("/_bancada/cenarios", json={"duplicar": True})
             c.post("/_bancada/banco/pagar", json={"pixCopiaECola": bc})
             c.post("/_bancada/relogio/avancar", json={"segundos": 0})
@@ -125,7 +147,14 @@ def test_webhook_perder() -> None:
             url = f"http://127.0.0.1:{port}/hook"
             c.put("/webhook/chave", json={"webhookUrl": url})
             bc = gerar_brcode("chave", valor="10.50", txid="txperder")
-            c.put("/cob/txperder", json={"chave": "chave", "valor": "10.50"})
+            c.put(
+                "/cob/txperder",
+                json={
+                    "chave": "chave",
+                    "valor": {"original": "10.50"},
+                    "calendario": {"expiracao": 3600},
+                },
+            )
             c.post("/_bancada/cenarios", json={"perder": True})
             c.post("/_bancada/banco/pagar", json={"pixCopiaECola": bc})
             r = c.post("/_bancada/relogio/avancar", json={"segundos": 0})
@@ -144,7 +173,14 @@ def test_webhook_atrasar() -> None:
             url = f"http://127.0.0.1:{port}/hook"
             c.put("/webhook/chave", json={"webhookUrl": url})
             bc = gerar_brcode("chave", valor="10.50", txid="txatraso")
-            c.put("/cob/txatraso", json={"chave": "chave", "valor": "10.50"})
+            c.put(
+                "/cob/txatraso",
+                json={
+                    "chave": "chave",
+                    "valor": {"original": "10.50"},
+                    "calendario": {"expiracao": 3600},
+                },
+            )
             c.post("/_bancada/cenarios", json={"atrasar_segundos": 5})
             c.post("/_bancada/banco/pagar", json={"pixCopiaECola": bc})
             r1 = c.post("/_bancada/relogio/avancar", json={"segundos": 0})
@@ -166,7 +202,14 @@ def test_webhook_fora_de_ordem() -> None:
             c.put("/webhook/chave", json={"webhookUrl": url})
             for tx in ("txo1", "txo2"):
                 bc = gerar_brcode("chave", valor="10.50", txid=tx)
-                c.put(f"/cob/{tx}", json={"chave": "chave", "valor": "10.50"})
+                c.put(
+                    f"/cob/{tx}",
+                    json={
+                        "chave": "chave",
+                        "valor": {"original": "10.50"},
+                        "calendario": {"expiracao": 3600},
+                    },
+                )
             c.post("/_bancada/cenarios", json={"fora_de_ordem": True, "semente": 1})
             for tx in ("txo1", "txo2"):
                 bc = gerar_brcode("chave", valor="10.50", txid=tx)
@@ -188,7 +231,14 @@ def test_webhook_erro_5xx_retry() -> None:
             url = f"http://127.0.0.1:{port}/hook"
             c.put("/webhook/chave", json={"webhookUrl": url})
             bc = gerar_brcode("chave", valor="10.50", txid="tx5xx")
-            c.put("/cob/tx5xx", json={"chave": "chave", "valor": "10.50"})
+            c.put(
+                "/cob/tx5xx",
+                json={
+                    "chave": "chave",
+                    "valor": {"original": "10.50"},
+                    "calendario": {"expiracao": 3600},
+                },
+            )
             c.post("/_bancada/cenarios", json={"erro_5xx": True})
             c.post("/_bancada/banco/pagar", json={"pixCopiaECola": bc})
             r1 = c.post("/_bancada/relogio/avancar", json={"segundos": 0})

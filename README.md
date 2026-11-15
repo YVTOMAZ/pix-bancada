@@ -25,7 +25,7 @@ Acesse http://127.0.0.1:8080. Crie uma cobranca por curl e pague no navegador.
 ```bash
 curl -X PUT http://127.0.0.1:8080/cob/tx1 \
   -H 'Content-Type: application/json' \
-  -d '{"chave":"12345678901","valor":"10.50"}'
+  -d '{"chave":"12345678901","valor":{"original":"10.50"},"calendario":{"expiracao":3600}}'
 ```
 
 ## Rotas suportadas (v0.1.x)
