@@ -1,7 +1,9 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from pix_bancada.cobrancas import router as cob_router
 from pix_bancada.config import obter_configuracao
@@ -31,3 +33,7 @@ app.include_router(oauth_router)
 app.include_router(cob_router)
 app.include_router(pix_router)
 app.include_router(webhooks_router)
+
+_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if _dist.exists():
+    app.mount("/", StaticFiles(directory=str(_dist), html=True), name="frontend")
