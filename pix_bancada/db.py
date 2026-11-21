@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS cobrancas (
     status TEXT NOT NULL,
     expiracao_em TEXT,
     criado_em TEXT NOT NULL,
-    brcode TEXT
+    brcode TEXT,
+    revisao INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS pix (
     end_to_end_id TEXT PRIMARY KEY,
@@ -49,6 +50,10 @@ async def inicializar_banco(caminho: str) -> None:
             cols = [r[1] for r in await cur.fetchall()]
         if "ultimo_status_http" not in cols:
             await db.execute("ALTER TABLE entregas_webhook ADD COLUMN ultimo_status_http INTEGER")
+        async with db.execute("PRAGMA table_info(cobrancas)") as cur:
+            cols = [r[1] for r in await cur.fetchall()]
+        if "revisao" not in cols:
+            await db.execute("ALTER TABLE cobrancas ADD COLUMN revisao INTEGER NOT NULL DEFAULT 0")
         await db.commit()
 
 

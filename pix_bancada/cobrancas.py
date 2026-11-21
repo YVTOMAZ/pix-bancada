@@ -28,9 +28,9 @@ class CobValor(BaseModel):
 
 
 class Devedor(BaseModel):
-    cpf: str | None = None
-    cnpj: str | None = None
-    nome: str
+    cpf: str | None = Field(default=None, pattern=r"^\d{11}$")
+    cnpj: str | None = Field(default=None, pattern=r"^[0-9A-Z]{14}$")
+    nome: str = Field(max_length=200)
 
     @model_validator(mode="after")
     def _um_identificador(self) -> "Devedor":
@@ -108,14 +108,13 @@ class CobRevisada(BaseModel):
         else:
             novo.pop("expiracao", None)
         if convertido:
-            if "calendario" not in novo:
-                novo["calendario"] = {"expiracao": 86400}
             novo["legado"] = True
             logger.warning("formato plano legado recebido em cob; sera removido na v0.2.0")
         return novo
 
 
-ESTADOS_VALIDOS = {"ATIVA", "CONCLUIDA", "REMOVIDA_PELO_USUARIO_RECEBEDOR", "REMOVIDA_PELO_PSP"}
+# spec CobRevisada.status: unico valor aceito do usuario recebedor
+STATUS_PATCH_PERMITIDOS = {"REMOVIDA_PELO_USUARIO_RECEBEDOR"}
 
 
 async def _conn() -> aiosqlite.Connection:
@@ -133,12 +132,11 @@ def _row_para_cob(row: aiosqlite.Row) -> dict[str, object]:
             expiracao_seg = int(delta.total_seconds())
         except ValueError:
             expiracao_seg = 3600
-    return {
+    cob: dict[str, object] = {
         "calendario": {"criacao": criacao, "expiracao": expiracao_seg},
         "txid": row["txid"],
-        "revisao": 0,
+        "revisao": row["revisao"],
         "status": row["status"],
-        "valor": {"original": row["valor"]},
         "chave": row["chave"],
         "loc": {
             "id": int(row["txid"][:8]) if row["txid"][:8].isdigit() else 0,
@@ -149,6 +147,10 @@ def _row_para_cob(row: aiosqlite.Row) -> dict[str, object]:
         },
         "pixCopiaECola": row["brcode"],
     }
+    # linhas legadas podem ter valor NULL: omitir em vez de fabricar {"original": null}
+    if row["valor"] is not None:
+        cob["valor"] = {"original": row["valor"]}
+    return cob
 
 
 @router.put("/cob/{txid}", status_code=201)
@@ -167,7 +169,8 @@ async def criar_ou_alterar_cob(
                VALUES (?,?,?,?,?,?,?)
                ON CONFLICT(txid) DO UPDATE SET
                  chave=excluded.chave, valor=excluded.valor, status='ATIVA',
-                 expiracao_em=excluded.expiracao_em, brcode=excluded.brcode""",
+                 expiracao_em=excluded.expiracao_em, brcode=excluded.brcode,
+                 revisao=cobrancas.revisao + 1""",
             (txid, body.chave, valor_str, "ATIVA", expira, agora, brcode),
         )
         await db.commit()
@@ -228,28 +231,35 @@ async def alterar_cob(txid: str, body: CobRevisada, response: Response) -> dict[
         if row is None:
             raise problema(404, "Nao encontrado", f"Cobranca {txid} nao encontrada", "https://pix-bancada.local/problems/not-found")
         assert row is not None
-        if body.status is not None:
-            if body.status not in ESTADOS_VALIDOS:
-                raise problema(400, "Estado invalido", f"Estado {body.status} invalido", "https://pix-bancada.local/problems/invalid-state")
-            await db.execute("UPDATE cobrancas SET status=? WHERE txid=?", (body.status, txid))
-        if body.valor is not None:
-            await db.execute(
-                "UPDATE cobrancas SET valor=? WHERE txid=?", (body.valor.original, txid)
+        if body.status is not None and body.status not in STATUS_PATCH_PERMITIDOS:
+            raise problema(
+                400,
+                "Estado invalido",
+                "Via PATCH so e aceito o status REMOVIDA_PELO_USUARIO_RECEBEDOR",
+                "https://pix-bancada.local/problems/invalid-state",
             )
-            brcode = gerar_brcode(row["chave"], valor=body.valor.original, txid=txid)
-            await db.execute(
-                "UPDATE cobrancas SET brcode=? WHERE txid=?", (brcode, txid)
-            )
-        if body.calendario is not None and body.calendario.expiracao is not None:
-            criacao = row["criado_em"]
+        # campos efetivamente alterados (loc e campos nao persistidos nao contam)
+        mudancas: dict[str, object] = {}
+        if body.status is not None and body.status != row["status"]:
+            mudancas["status"] = body.status
+        if body.valor is not None and body.valor.original != row["valor"]:
+            mudancas["valor"] = body.valor.original
+            mudancas["brcode"] = gerar_brcode(row["chave"], valor=body.valor.original, txid=txid)
+        if body.calendario is not None:
             try:
-                base = datetime.fromisoformat(criacao)
+                base = datetime.fromisoformat(row["criado_em"])
                 novo_exp = (base + timedelta(seconds=body.calendario.expiracao)).isoformat()
-                await db.execute(
-                    "UPDATE cobrancas SET expiracao_em=? WHERE txid=?", (novo_exp, txid)
-                )
+                if novo_exp != row["expiracao_em"]:
+                    mudancas["expiracao_em"] = novo_exp
             except ValueError:
                 pass
+        if mudancas:
+            sets = ", ".join(f"{col}=?" for col in mudancas)
+            # incremento no proprio UPDATE: uma unica vez por requisicao, sem read-modify-write
+            await db.execute(
+                f"UPDATE cobrancas SET {sets}, revisao = revisao + 1 WHERE txid=?",  # noqa: S608
+                (*mudancas.values(), txid),
+            )
         await db.commit()
         async with db.execute("SELECT * FROM cobrancas WHERE txid=?", (txid,)) as cur:
             row = await cur.fetchone()
