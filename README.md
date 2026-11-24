@@ -2,7 +2,7 @@
 
 Emulador local da API Pix do BCB: banco ficticio para pagar cobrancas de teste, webhooks realistas, caos controlavel e relogio virtual.
 
-> Status: v0.1.1 publicada.
+> Status: v0.1.3 publicada.
 
 ## Aviso importante
 
